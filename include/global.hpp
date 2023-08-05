@@ -448,7 +448,7 @@ class LM_OPTIMIZER {
                               double& residual) {
     residual = 0;
     size_t voxel_size = baseOriginPts.size();
-    // LOG(INFO)<<"voxel_size "<<voxel_size<<std::endl;
+    // LOG(INFO)<<"voxel_size "<<voxel_size;
     Eigen::Vector3d pt_trans, new_center;
     Eigen::Matrix3d new_A;
 

@@ -226,7 +226,7 @@ void roughCalib(Calibration &calibra, double search_resolution, int max_iter) {
         float cost = ((float)(edge_size - pnp_size) / (float)edge_size);
 #ifdef debug_mode
         LOG(INFO) << "n " << n << " round " << round << " a " << a << " iter "
-                  << iter << " cost:" << cost << std::endl;
+                  << iter << " cost:" << cost ;
 #endif
         if (cost < min_cost) {
           ROS_INFO_STREAM("cost " << cost << " edge size "

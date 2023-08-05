@@ -2,6 +2,7 @@
   <node pkg="mlcc" type="calib_camera" name="calib_camera"
     args="$(find mlcc)/config/left.yaml
           $(find mlcc)/config/right.yaml
+          $(find mlcc)/scene2/
           $(find mlcc)/config/avia_stereo.yaml
           $(find mlcc)/result"
     output="screen"/>

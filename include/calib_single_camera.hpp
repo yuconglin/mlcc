@@ -140,7 +140,7 @@ class Calibration {
       LiDAREdgeExtraction(voxel_map, ransac_dis_threshold_,
                           plane_size_threshold_, lidar_edge_cloud_);
     }
-    LOG(INFO) << "lidar edge size:" << lidar_edge_cloud_->size() << std::endl;
+    LOG(INFO) << "lidar edge size:" << lidar_edge_cloud_->size() ;
 
     // #ifdef FISHEYE
     // cv::fisheye::estimateNewCameraMatrixForUndistortRectify(camera_.camera_matrix_,
@@ -165,7 +165,7 @@ class Calibration {
     cv::FileStorage fCamSet(CamCfgPaths, cv::FileStorage::READ);
     if (!fCamSet.isOpened()) {
       std::cerr << "Failed to open cams settings file at " << CamCfgPaths
-                << std::endl;
+                ;
       exit(-1);
     }
     camera_.width_ = fCamSet["Camera.width"];
@@ -195,12 +195,12 @@ class Calibration {
         camera_.init_ext_.at<double>(2, 1), camera_.init_ext_.at<double>(2, 2);
     camera_.ext_t << camera_.init_ext_.at<double>(0, 3),
         camera_.init_ext_.at<double>(1, 3), camera_.init_ext_.at<double>(2, 3);
-    LOG(INFO) << "Camera Matrix: " << std::endl
-              << camera_.camera_matrix_ << std::endl;
-    LOG(INFO) << "Distortion Coeffs: " << std::endl
-              << camera_.dist_coeffs_ << std::endl;
-    LOG(INFO) << "Extrinsic Params: " << std::endl
-              << camera_.init_ext_ << std::endl;
+    LOG(INFO) << "Camera Matrix: " 
+              << camera_.camera_matrix_ ;
+    LOG(INFO) << "Distortion Coeffs: " 
+              << camera_.dist_coeffs_ ;
+    LOG(INFO) << "Extrinsic Params: " 
+              << camera_.init_ext_ ;
     ROS_INFO_STREAM("Sucessfully load Camera Config");
   }
 
@@ -208,7 +208,7 @@ class Calibration {
     cv::FileStorage fSettings(config_file, cv::FileStorage::READ);
     if (!fSettings.isOpened()) {
       std::cerr << "Failed to open settings file at: " << config_file
-                << std::endl;
+                ;
       exit(-1);
     }
     fSettings["LiDARNumber"] >> lidar_number_;
@@ -1336,7 +1336,7 @@ class Calibration {
         cnt++;
       }
     }
-    LOG(INFO) << "lidar cloud size:" << lidar_cloud->size() << std::endl;
+    LOG(INFO) << "lidar cloud size:" << lidar_cloud->size() ;
     lidar_cloud->points.resize(cnt);
     // downsample_voxel(*lidar_cloud, 0.03);
     projection(extrinsic_params, cam, lidar_cloud, depth_projection_img);

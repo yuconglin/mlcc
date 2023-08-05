@@ -153,7 +153,7 @@ void roughCalib(Calibration& calibra, double search_resolution, int max_iter) {
           float cost = ((float)(edge_size - pnp_size) / (float)edge_size);
 #ifdef debug_mode
           LOG(INFO) << "n " << n << " round " << round << " a " << a << " iter "
-                    << iter << " cost:" << cost << std::endl;
+                    << iter << " cost:" << cost;
 #endif
           if (cost < min_cost) {
             ROS_INFO_STREAM("cost " << cost << " edge size "
@@ -192,15 +192,16 @@ int main(int argc, char** argv) {
 
   const string LeftCamCfgPath = string(argv[1]);
   const string RightCamCfgPath = string(argv[2]);
-  const string CalibSettingPath = string(argv[3]);
-  const string ResultPath = string(argv[4]);
+  const string LidarDataPath = string(argv[3]);
+  const string CalibSettingPath = string(argv[4]);
+  const string ResultPath = string(argv[5]);
 
   /* load calibration configurations */
   vector<string> CamCfgPaths;
   CamCfgPaths.emplace_back(LeftCamCfgPath);
   CamCfgPaths.emplace_back(RightCamCfgPath);
-  Calibration calib(CamCfgPaths, CalibSettingPath, use_adaptive_voxel);
-  LOG(INFO) << "........... calibration constructed ...............\n";
+  Calibration calib(CamCfgPaths, LidarDataPath, CalibSettingPath,
+                    use_adaptive_voxel);
 
   if (use_rough_calib) {
     roughCalib(calib, DEG2RAD(0.1), 30);

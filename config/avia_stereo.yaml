@@ -4,7 +4,6 @@ BaseLiDARNumber: 3 # AVIA
 ExtLiDARNumber1: 0 # left LiDAR of MID-100
 ExtLiDARNumber2: 1 # middle LiDAR of MID-100
 ExtLiDARNumber3: 2 # right LiDAR of MID-100
-LiDARFilesPath: "/home/sam/catkin_ws/src/mlcc/scene2/"
 ExtrinsicNumber: 3 # total number of extrinsics to be calibrated
 
 # Initial extrinsic (usually provided by hand measurement or cad design)

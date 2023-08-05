@@ -108,13 +108,12 @@ class Calibration {
   bool use_adaptive_voxel = true;
 
   Calibration(const std::vector<std::string>& CamCfgPaths,
-              const std::string& CalibCfgFile, bool use_ada_voxel) {
+              const std::string& LidarDataPath, const std::string& CalibCfgFile,
+              bool use_ada_voxel) {
     use_adaptive_voxel = use_ada_voxel;
     loadCameraConfig(cams, CamCfgPaths);
-    loadCalibConfig(CalibCfgFile);
-    LOG(INFO) << "............ calib config loaded ...........";
+    loadCalibConfig(CalibCfgFile, LidarDataPath);
     loadImgAndPointcloud();
-    LOG(INFO) << "............ image and point cloud loaded ..........";
 
     time_t t1 = clock();
     if (use_ada_voxel) {
@@ -126,7 +125,7 @@ class Calibration {
       ROS_INFO_STREAM("Adaptive voxel sucess!");
       time_t t2 = clock();
       LOG(INFO) << "adaptive time:" << (double)(t2 - t1) / (CLOCKS_PER_SEC)
-                << "s" << std::endl;
+                << "s";
     } else {
       std::unordered_map<VOXEL_LOC, Voxel*> voxel_map;
       initVoxel(voxel_size_, voxel_map);
@@ -134,10 +133,9 @@ class Calibration {
       LiDAREdgeExtraction(voxel_map, ransac_dis_threshold_,
                           plane_size_threshold_, lidar_edge_clouds);
       time_t t3 = clock();
-      LOG(INFO) << "voxel time:" << (double)(t3 - t1) / (CLOCKS_PER_SEC)
-                << std::endl;
+      LOG(INFO) << "voxel time:" << (double)(t3 - t1) / (CLOCKS_PER_SEC);
     }
-    LOG(INFO) << "lidar edge size:" << lidar_edge_clouds->size() << std::endl;
+    LOG(INFO) << "lidar edge size:" << lidar_edge_clouds->size();
 
     for (size_t i = 0; i < cams.size(); i++)
       for (size_t j = 0; j < cams[i].rgb_imgs.size(); j++)
@@ -165,8 +163,7 @@ class Calibration {
     for (size_t i = 0; i < CamCfgPaths.size(); i++) {
       cv::FileStorage fCamSet(CamCfgPaths[i], cv::FileStorage::READ);
       if (!fCamSet.isOpened()) {
-        std::cerr << "Failed to open cams settings file at " << CamCfgPaths[i]
-                  << std::endl;
+        std::cerr << "Failed to open cams settings file at " << CamCfgPaths[i];
         exit(-1);
       }
       cams[i].width_ = fCamSet["Camera.width"];
@@ -197,28 +194,25 @@ class Calibration {
           cams[i].init_ext_.at<double>(1, 3),
           cams[i].init_ext_.at<double>(2, 3);
       ROS_INFO_STREAM("Camera " << i << " Configuration");
-      LOG(INFO) << "Camera Matrix: " << std::endl
-                << cams[i].camera_matrix_ << std::endl;
-      LOG(INFO) << "Distortion Coeffs: " << std::endl
-                << cams[i].dist_coeffs_ << std::endl;
-      LOG(INFO) << "Extrinsic Params: " << std::endl
-                << cams[i].init_ext_ << std::endl;
+      LOG(INFO) << "Camera Matrix: " << cams[i].camera_matrix_;
+      LOG(INFO) << "Distortion Coeffs: " << cams[i].dist_coeffs_;
+      LOG(INFO) << "Extrinsic Params: " << cams[i].init_ext_;
     }
     return true;
   }
 
-  bool loadCalibConfig(const std::string& config_file) {
+  bool loadCalibConfig(const std::string& config_file,
+                       const std::string& lidar_data_path) {
     cv::FileStorage fSettings(config_file, cv::FileStorage::READ);
     if (!fSettings.isOpened()) {
-      std::cerr << "Failed to open settings file at: " << config_file
-                << std::endl;
+      std::cerr << "Failed to open settings file at: " << config_file;
       exit(-1);
     }
-    fSettings["LiDARFilesPath"] >> lidar_path;
+    lidar_path = lidar_data_path;
     fSettings["ExtrinsicNumber"] >> total_ext_number;
     fSettings["BaseLiDARNumber"] >> base_number;
 
-    LOG(INFO) << "extrinsic LiDAR number:" << total_ext_number << std::endl;
+    LOG(INFO) << "extrinsic LiDAR number:" << total_ext_number;
 
     ext_lidars.resize(total_ext_number);
     fSettings["ExtLiDARNumber1"] >> ext_lidars[0].lidar_number;
@@ -246,7 +240,6 @@ class Calibration {
                                           Eigen::Vector3d(tx, ty, tz)));
     }
     file.close();
-    LOG(INFO) << "lidar poses and extrinsics loaded .............";
 
     ROS_INFO_STREAM("read " << base_poses.size() << " poses, "
                             << extrinsics.size() << " extrinsics");
@@ -1442,7 +1435,7 @@ class Calibration {
         cnt++;
       }
     }
-    LOG(INFO) << "lidar cloud size:" << lidar_cloud->size() << std::endl;
+    LOG(INFO) << "lidar cloud size:" << lidar_cloud->size();
     lidar_cloud->points.resize(cnt);
     // downsample_voxel(*lidar_cloud, 0.03);
     projection(extrinsic_params, cam, lidar_cloud, depth_projection_img);
