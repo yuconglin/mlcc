@@ -24,30 +24,31 @@ struct PnPData {
 
 struct VPnPData {
   double x, y, z, u, v;
-  Eigen::Vector2d direction;
-  Eigen::Vector2d direction_lidar;
+  Eigen::Vector2d direction = Eigen::Vector2d::Zero();
+  Eigen::Vector2d direction_lidar = Eigen::Vector2d::Zero();
   int number;
 };
 
 typedef Eigen::Matrix<double, 6, 1> Vector6d;
+
 //存放每一个点的索引值和其对应的曲率
-typedef struct PCURVATURE {
+struct PCURVATURE {
   int index;
   float curvature;
-} PCURVATURE;
+};
 
-typedef struct SinglePlane {
+struct SinglePlane {
   pcl::PointCloud<pcl::PointXYZI> cloud;
   pcl::PointXYZ p_center;
-  Eigen::Vector3d normal;
+  Eigen::Vector3d normal = Eigen::Vector3d::Zero();
   int index;
-} SinglePlane;
+};
 
-typedef struct Plane {
+struct Plane {
   pcl::PointXYZINormal p_center;
-  Eigen::Vector3d center;
-  Eigen::Vector3d normal;
-  Eigen::Matrix3d covariance;
+  Eigen::Vector3d center = Eigen::Vector3d::Zero();
+  Eigen::Vector3d normal = Eigen::Vector3d::Zero();
+  Eigen::Matrix3d covariance = Eigen::Matrix3d::Zero();
   std::vector<Eigen::Vector3d> plane_points;
   float radius = 0;
   float min_eigen_value = 1;
@@ -57,7 +58,7 @@ typedef struct Plane {
   bool is_init = false;
   int id;
   bool is_update = false;
-} Plane;
+};
 
 Eigen::Matrix3d wedge(const Eigen::Vector3d& v) {
   Eigen::Matrix3d V;
@@ -218,14 +219,15 @@ void mapJet(double v, double vmin, double vmax, uint8_t& r, uint8_t& g,
   g = (uint8_t)(255 * dg);
   b = (uint8_t)(255 * db);
 }
-typedef struct VoxelGrid {
+
+struct VoxelGrid {
   float size = 0.5;
   int index;
   Eigen::Vector3d origin;
   pcl::PointCloud<pcl::PointXYZI> cloud;
-} VoxelGrid;
+};
 
-typedef struct Voxel {
+struct Voxel {
   float size;
   Eigen::Vector3d voxel_origin;
   std::vector<uint8_t> voxel_color;
@@ -234,7 +236,49 @@ typedef struct Voxel {
     voxel_origin << 0, 0, 0;
     cloud = pcl::PointCloud<pcl::PointXYZI>::Ptr(
         new pcl::PointCloud<pcl::PointXYZI>);
-  };
-} Voxel;
+  }
+};
+
+// Author: Huahua
+class UnionFindSet {
+ public:
+  UnionFindSet(int n) {
+    ranks_ = vector<int>(n + 1, 0);
+    parents_ = vector<int>(n + 1, 0);
+
+    for (int i = 0; i < parents_.size(); ++i) parents_[i] = i;
+  }
+
+  // Merge sets that contains u and v.
+  // Return true if merged, false if u and v are already in one set.
+  bool Union(int u, int v) {
+    int pu = Find(u);
+    int pv = Find(v);
+    if (pu == pv) return false;
+
+    // Meger low rank tree into high rank tree
+    if (ranks_[pv] < ranks_[pu])
+      parents_[pv] = pu;
+    else if (ranks_[pu] < ranks_[pv])
+      parents_[pu] = pv;
+    else {
+      parents_[pv] = pu;
+      ranks_[pu] += 1;
+    }
+
+    return true;
+  }
+
+  // Get the root of u.
+  int Find(int u) {
+    // Compress the path during traversal
+    if (u != parents_[u]) parents_[u] = Find(parents_[u]);
+    return parents_[u];
+  }
+
+ private:
+  vector<int> parents_;
+  vector<int> ranks_;
+};
 
 #endif

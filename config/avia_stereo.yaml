@@ -32,6 +32,8 @@ Ransac.dis_threshold: 0.03
 Ransac.iter_num: 200
 Edge.min_dis_threshold: 0.05
 Edge.max_dis_threshold: 0.08
+Edge.direction_theta_min: 0
+Edge.direction_theta_max: 30
 
 # Params for color point clouds
 Color.dense: 10

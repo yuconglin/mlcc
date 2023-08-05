@@ -90,10 +90,10 @@ class Calibration {
   float down_sample_size_;
   float ransac_dis_threshold_;
   float plane_size_threshold_;
-  float theta_min_;
-  float theta_max_;
-  float direction_theta_min_;
-  float direction_theta_max_;
+  float cos_normal_theta_min_;
+  float cos_normal_theta_max_;
+  float direction_cos_normal_theta_min_;
+  float direction_cos_normal_theta_max_;
   float line_dis_threshold_;
   float min_line_dis_threshold_;
   float max_line_dis_threshold_;
@@ -225,10 +225,10 @@ class Calibration {
     ransac_dis_threshold_ = fSettings["Ransac.dis_threshold"];
     min_line_dis_threshold_ = fSettings["Edge.min_dis_threshold"];
     max_line_dis_threshold_ = fSettings["Edge.max_dis_threshold"];
-    theta_min_ = fSettings["Plane.normal_theta_min"];
-    theta_max_ = fSettings["Plane.normal_theta_max"];
-    theta_min_ = cos(DEG2RAD(theta_min_));
-    theta_max_ = cos(DEG2RAD(theta_max_));
+    cos_normal_theta_min_ = fSettings["Plane.normal_theta_min"];
+    cos_normal_theta_max_ = fSettings["Plane.normal_theta_max"];
+    cos_normal_theta_min_ = cos(DEG2RAD(cos_normal_theta_min_));
+    cos_normal_theta_max_ = cos(DEG2RAD(cos_normal_theta_max_));
 
     ROS_INFO_STREAM("Sucessfully load Calibration Config");
   }
@@ -621,7 +621,7 @@ class Calibration {
   void projectLine(const Plane* plane1, const Plane* plane2,
                    std::vector<Eigen::Vector3d>& line_point) {
     float theta = plane1->normal.dot(plane2->normal);
-    if (!(theta > theta_max_ && theta < theta_min_)) return;
+    if (!(theta > cos_normal_theta_max_ && theta < cos_normal_theta_min_)) return;
 
     Eigen::Vector3d c1 = plane1->center;
     Eigen::Vector3d c2 = plane2->center;
@@ -679,7 +679,7 @@ class Calibration {
           float z2 = plane_lists[plane_idx2].p_center.z;
           float theta = a1 * a2 + b1 * b2 + c1 * c2;
           float point_dis_threshold = 0.00;
-          if (theta > theta_max_ && theta < theta_min_) {
+          if (theta > cos_normal_theta_max_ && theta < cos_normal_theta_min_) {
             if (plane_lists[plane_idx1].cloud.size() > 0 ||
                 plane_lists[plane_idx2].cloud.size() > 0) {
               float matrix[4][5];
@@ -1075,7 +1075,7 @@ class Calibration {
         pnp.direction_lidar = lidar_direction_list[i];
         pnp.number = 0;
         float theta = pnp.direction.dot(pnp.direction_lidar);
-        if (theta > direction_theta_min_ || theta < direction_theta_max_)
+        if (theta > direction_cos_normal_theta_min_ || theta < direction_cos_normal_theta_max_)
           pnp_list.push_back(pnp);
       }
     }

@@ -63,12 +63,19 @@ class vpnp_calib {
   vpnp_calib(VPnPData p) { pd = p; }
   template <typename T>
   bool operator()(const T* _q, const T* _t, T* residuals) const {
+    // inner and distor are from the global variables.
     Eigen::Matrix<T, 3, 3> innerT = inner.cast<T>();
     Eigen::Matrix<T, 4, 1> distorT = distor.cast<T>();
+
+    // _q and _t are variables to optimize.
     Eigen::Quaternion<T> q_incre{_q[3], _q[0], _q[1], _q[2]};
     Eigen::Matrix<T, 3, 1> t_incre{_t[0], _t[1], _t[2]};
+
+    // Transform point from lidar to camera frame.
     Eigen::Matrix<T, 3, 1> p_l(T(pd.x), T(pd.y), T(pd.z));
     Eigen::Matrix<T, 3, 1> p_c = q_incre.toRotationMatrix() * p_l + t_incre;
+
+    // Apply the camera model and distortion.
     Eigen::Matrix<T, 3, 1> p_2 = innerT * p_c;
     T uo = p_2[0] / p_2[2];
     T vo = p_2[1] / p_2[2];
@@ -94,18 +101,17 @@ class vpnp_calib {
     } else {
       residuals[0] = ud - T(pd.u);
       residuals[1] = vd - T(pd.v);
-      Eigen::Matrix<T, 2, 2> I =
-          Eigen::Matrix<float, 2, 2>::Identity().cast<T>();
-      Eigen::Matrix<T, 2, 1> n = pd.direction.cast<T>();
-      Eigen::Matrix<T, 1, 2> nt = pd.direction.transpose().cast<T>();
-      Eigen::Matrix<T, 2, 2> V = n * nt;
-      V = I - V;
-      Eigen::Matrix<T, 2, 1> R = Eigen::Matrix<float, 2, 1>::Zero().cast<T>();
-      R.coeffRef(0, 0) = residuals[0];
-      R.coeffRef(1, 0) = residuals[1];
-      R = V * R;
-      residuals[0] = R.coeffRef(0, 0);
-      residuals[1] = R.coeffRef(1, 0);
+      // Similar to equation (4) of BALM paper. This is to minimize the distance
+      // from the transformed LiDAR points in the image space to the edge in the
+      // image space.
+      const Eigen::Matrix<T, 2, 1> n = pd.direction.cast<T>();
+      const Eigen::Matrix<T, 1, 2> nt = pd.direction.transpose().cast<T>();
+      const Eigen::Matrix<T, 2, 2> V =
+          Eigen::Matrix<float, 2, 2>::Identity().cast<T>() - n * nt;
+      Eigen::Matrix<T, 2, 1> res(residuals[0], residuals[1]);
+      res = V * res;
+      residuals[0] = res(0);
+      residuals[1] = res(1);
     }
     return true;
   }
@@ -210,92 +216,100 @@ int main(int argc, char** argv) {
   /* calibration process */
   int iter = 0;
   ros::Time begin_t = ros::Time::now();
+
   for (int dis_threshold = 20; dis_threshold > dis_thr_low_bound;
        dis_threshold -= 1) {
     LOG(INFO) << "Iteration:" << iter++ << " Distance:" << dis_threshold;
-    for (int cnt = 0; cnt < 2; cnt++)
-      for (size_t a = 0; a < calib.cams.size(); a++) {
-        Eigen::Vector3d euler_angle =
-            calib.cams[a].ext_R.eulerAngles(2, 1, 0);  // 2 is z, 0 is x
-        Eigen::Vector3d transation = calib.cams[a].ext_t;
-        Vector6d calib_params;
-        calib_params << euler_angle(0), euler_angle(1), euler_angle(2),
-            transation(0), transation(1), transation(2);
-        vector<VPnPData> vpnp_list;
-        Eigen::Matrix3d R;
-        Eigen::Vector3d T;
-        R = calib.cams[a].ext_R;
-        T = calib.cams[a].ext_t;
-        inner << calib.cams[a].fx_, calib.cams[a].s_, calib.cams[a].cx_, 0.0,
-            calib.cams[a].fy_, calib.cams[a].cy_, 0.0, 0.0, 1.0;
-        distor << calib.cams[a].k1_, calib.cams[a].k2_, calib.cams[a].p1_,
-            calib.cams[a].p2_;
 
-        calib.buildVPnp(calib.cams[a], calib_params, dis_threshold, true,
-                        calib.cams[a].rgb_edge_clouds, calib.lidar_edge_clouds,
-                        vpnp_list);
+    for (size_t a = 0; a < calib.cams.size(); ++a) {
+      // Camera extrinsics' rotation and translation.
+      const Eigen::Vector3d euler_angle =
+          calib.cams[a].ext_R.eulerAngles(2, 1, 0);  // 2 is z, 0 is x
+      const Eigen::Vector3d transation = calib.cams[a].ext_t;
 
-        Eigen::Quaterniond q(R);
-        double ext[7];
-        ext[0] = q.x();
-        ext[1] = q.y();
-        ext[2] = q.z();
-        ext[3] = q.w();
-        ext[4] = T[0];
-        ext[5] = T[1];
-        ext[6] = T[2];
-        Eigen::Map<Eigen::Quaterniond> m_q =
-            Eigen::Map<Eigen::Quaterniond>(ext);
-        Eigen::Map<Eigen::Vector3d> m_t = Eigen::Map<Eigen::Vector3d>(ext + 4);
+      Vector6d calib_params;
+      calib_params << euler_angle(0), euler_angle(1), euler_angle(2),
+          transation(0), transation(1), transation(2);
 
-        ceres::LocalParameterization* q_parameterization =
-            new ceres::EigenQuaternionParameterization();
-        ceres::Problem problem;
-        problem.AddParameterBlock(ext, 4, q_parameterization);
-        problem.AddParameterBlock(ext + 4, 3);
-        for (auto val : vpnp_list) {
-          ceres::CostFunction* cost_function;
-          cost_function = vpnp_calib::Create(val);
-          problem.AddResidualBlock(cost_function, NULL, ext, ext + 4);
-        }
-        ceres::Solver::Options options;
-        options.preconditioner_type = ceres::JACOBI;
-        options.linear_solver_type = ceres::SPARSE_SCHUR;
-        options.minimizer_progress_to_stdout = false;
-        options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
+      vector<VPnPData> vpnp_list;
+      inner << calib.cams[a].fx_, calib.cams[a].s_, calib.cams[a].cx_, 0.0,
+          calib.cams[a].fy_, calib.cams[a].cy_, 0.0, 0.0, 1.0;
+      distor << calib.cams[a].k1_, calib.cams[a].k2_, calib.cams[a].p1_,
+          calib.cams[a].p2_;
 
-        ceres::Solver::Summary summary;
-        ceres::Solve(options, &problem, &summary);
+      // Prepare the LiDAR and camera edge pairs.
+      calib.buildVPnp(calib.cams[a], calib_params, dis_threshold, true,
+                      calib.cams[a].rgb_edge_clouds, calib.lidar_edge_clouds,
+                      vpnp_list);
+
+      const Eigen::Matrix3d& R = calib.cams[a].ext_R;
+      const Eigen::Vector3d& T = calib.cams[a].ext_t;
+
+      Eigen::Quaterniond q(R);
+      double ext[7];
+      ext[0] = q.x();
+      ext[1] = q.y();
+      ext[2] = q.z();
+      ext[3] = q.w();
+      ext[4] = T[0];
+      ext[5] = T[1];
+      ext[6] = T[2];
+      Eigen::Map<Eigen::Quaterniond> m_q = Eigen::Map<Eigen::Quaterniond>(ext);
+      Eigen::Map<Eigen::Vector3d> m_t = Eigen::Map<Eigen::Vector3d>(ext + 4);
+
+      ceres::LocalParameterization* q_parameterization =
+          new ceres::EigenQuaternionParameterization();
+
+      // Create and solve a ceres problem.
+      ceres::Problem problem;
+      problem.AddParameterBlock(ext, 4, q_parameterization);
+      problem.AddParameterBlock(ext + 4, 3);
+
+      for (const auto& val : vpnp_list) {
+        ceres::CostFunction* cost_function = vpnp_calib::Create(val);
+        problem.AddResidualBlock(cost_function, nullptr, ext, ext + 4);
+      }
+      ceres::Solver::Options options;
+      options.preconditioner_type = ceres::JACOBI;
+      options.linear_solver_type = ceres::SPARSE_SCHUR;
+      options.minimizer_progress_to_stdout = false;
+      options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
+
+      ceres::Solver::Summary summary;
+      ceres::Solve(options, &problem, &summary);
 #ifdef debug_mode
-        LOG(INFO) << summary.BriefReport();
+      LOG(INFO) << summary.BriefReport();
 #endif
 
-        calib.cams[a].update_Rt(m_q.toRotationMatrix(), m_t);
-        vector<VPnPData>().swap(vpnp_list);
-      }
+      calib.cams[a].update_Rt(m_q.toRotationMatrix(), m_t);
+      vector<VPnPData>().swap(vpnp_list);
+    }
   }
+
   ros::Time end_t = ros::Time::now();
   LOG(INFO) << "time taken " << (end_t - begin_t).toSec();
 
   /* output calibrated extrinsic results */
-  string result_file = ResultPath + "/extrinsic.txt";
+  const string result_file = ResultPath + "/extrinsic.txt";
   ofstream outfile;
   outfile.open(result_file, ofstream::trunc);
   outfile.close();
-  for (size_t a = 0; a < calib.cams.size(); a++) {
-    Eigen::Vector3d euler_angle = calib.cams[a].ext_R.eulerAngles(2, 1, 0);
-    Eigen::Vector3d transation = calib.cams[a].ext_t;
+
+  for (size_t a = 0; a < calib.cams.size(); ++a) {
+    const Eigen::Vector3d euler_angle =
+        calib.cams[a].ext_R.eulerAngles(2, 1, 0);
+    const Eigen::Vector3d& transation = calib.cams[a].ext_t;
     Vector6d calib_params;
     calib_params << euler_angle(0), euler_angle(1), euler_angle(2),
         transation(0), transation(1), transation(2);
-    Eigen::Matrix3d R;
-    Eigen::Vector3d T;
-    R = calib.cams[a].ext_R;
-    T = calib.cams[a].ext_t;
+
+    const Eigen::Matrix3d& R = calib.cams[a].ext_R;
+    const Eigen::Vector3d& T = calib.cams[a].ext_t;
     outfile.open(result_file, ofstream::app);
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 3; ++i) {
       outfile << R(i, 0) << "," << R(i, 1) << "," << R(i, 2) << "," << T[i]
               << "\n";
+    }
     outfile << 0 << "," << 0 << "," << 0 << "," << 1 << "\n";
     outfile.close();
   }
@@ -305,38 +319,35 @@ int main(int argc, char** argv) {
   Rgt << 0.999824645293243, -0.0183851254185105, 0.00355890820136192,
       0.0183851559551168, 0.999830978444791, 2.41378898009210e-05,
       -0.00355875044729421, 4.12974252036677e-05, 0.999993666774833;
-  Matrix3d R_;
-  R_ = Rgt.inverse() * (calib.cams[1].ext_R * calib.cams[0].ext_R.inverse());
-  // Vector3d t_e = R_.eulerAngles(0, 1, 2);
-  // LOG(INFO) << "Euler " << t_e.transpose() * 57.3 ;
-  Eigen::Quaterniond q2(Rgt.transpose());
-  Eigen::Quaterniond qme(calib.cams[1].ext_R * calib.cams[0].ext_R.inverse());
-  // LOG(INFO) << qme.toRotationMatrix() ;
-  LOG(INFO) << "angular error " << qme.angularDistance(q2) * 57.3 << " degree";
+  // const Matrix3d R_ = Rgt.inverse() * (calib.cams[1].ext_R *
+  // calib.cams[0].ext_R.inverse());
+  const Eigen::Quaterniond q2(Rgt.transpose());
+  const Eigen::Quaterniond qme(calib.cams[1].ext_R *
+                               calib.cams[0].ext_R.inverse());
+
+  LOG(INFO) << "angular error " << qme.angularDistance(q2) * 180.0 / M_PI
+            << " degree";
   LOG(INFO) << "baseline error "
             << fabs(calib.cams[0].ext_t(0) - (qme * calib.cams[1].ext_t)(0) -
                     0.1072)
             << " m";
 
   /* visualize the colorized point cloud */
-  Eigen::Vector3d euler_angle = calib.cams[0].ext_R.eulerAngles(2, 1, 0);
-  Eigen::Vector3d transation = calib.cams[0].ext_t;
+  const Eigen::Vector3d euler_angle = calib.cams[0].ext_R.eulerAngles(2, 1, 0);
+  const Eigen::Vector3d& transation = calib.cams[0].ext_t;
+
   Vector6d calib_params;
   calib_params << euler_angle(0), euler_angle(1), euler_angle(2), transation(0),
       transation(1), transation(2);
   calib.colorCloud(calib_params, 1, calib.cams[0], calib.cams[0].rgb_imgs,
                    calib.base_clouds);
-
+  /*
   while (ros::ok()) {
     LOG(INFO) << "please reset rviz and push enter to publish again";
     getchar();
-    Eigen::Vector3d euler_angle = calib.cams[0].ext_R.eulerAngles(2, 1, 0);
-    Eigen::Vector3d transation = calib.cams[0].ext_t;
-    Vector6d calib_params;
-    calib_params << euler_angle(0), euler_angle(1), euler_angle(2),
-        transation(0), transation(1), transation(2);
     calib.colorCloud(calib_params, 1, calib.cams[0], calib.cams[0].rgb_imgs,
                      calib.base_clouds);
   }
+  */
   return 0;
 }
