@@ -5,6 +5,8 @@ set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++17")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
@@ -27,6 +29,9 @@ include_directories(
   ${CERES_INCLUDE_DIRS}
 )
 
+find_package(Glog REQUIRED)
+include_directories(${GLOG_INCLUDE_DIR})
+
 catkin_package(
   CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs
   DEPENDS EIGEN3 PCL OpenCV
@@ -34,17 +39,17 @@ catkin_package(
 )
 
 add_executable(pose_refine source/pose_refine.cpp)
-target_link_libraries(pose_refine ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(pose_refine ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS} glog)
 
 add_executable(extrinsic_refine source/extrinsic_refine.cpp)
-target_link_libraries(extrinsic_refine ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(extrinsic_refine ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS} glog)
 
 add_executable(global source/global.cpp)
-target_link_libraries(global ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(global ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS} glog)
 
 add_executable(calib_camera source/camera_calib.cpp)
-target_link_libraries(calib_camera ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(calib_camera ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS} glog)
 
 # Calibrate Using Single Scene
 add_executable(calib_single_camera source/calib_single_camera.cpp)
-target_link_libraries(calib_single_camera ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(calib_single_camera ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS} glog)

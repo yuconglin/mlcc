@@ -1,6 +1,7 @@
 #ifndef EXTRINSIC_REFINE_HPP
 #define EXTRINSIC_REFINE_HPP
 
+#include <glog/logging.h>
 #include <pcl/common/transforms.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <ros/ros.h>

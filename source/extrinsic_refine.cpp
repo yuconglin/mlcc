@@ -1,5 +1,6 @@
 #include "extrinsic_refine.hpp"
 
+#include <glog/logging.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/point_cloud.h>
@@ -126,8 +127,8 @@ int main(int argc, char** argv) {
 
   int loop = 0;
   for (; loop < max_iter; loop++) {
-    cout << "---------------------" << endl;
-    cout << "iteration " << loop << endl;
+    LOG(INFO) << "---------------------";
+    LOG(INFO) << "iteration " << loop;
     t_begin = ros::Time::now();
     unordered_map<VOXEL_LOC, OCTO_TREE*> surf_map;
     EXTRIN_OPTIMIZER lm_opt(pose_size, ref_size);
@@ -166,7 +167,7 @@ int main(int argc, char** argv) {
       delete iter->second;
 
     t_end = ros::Time::now();
-    cout << "time cost " << (t_end - t_begin).toSec() << endl;
+    LOG(INFO) << "time cost " << (t_end - t_begin).toSec();
     avg_time += (t_end - t_begin).toSec();
 
     pc_color->clear();
@@ -193,9 +194,9 @@ int main(int argc, char** argv) {
     pub_surf_debug.publish(debugMsg);
   }
 
-  cout << "---------------------" << endl;
-  cout << "complete" << endl;
-  cout << "averaged iteration time " << avg_time / (loop + 1) << endl;
+  LOG(INFO) << "---------------------";
+  LOG(INFO) << "complete";
+  LOG(INFO) << "averaged iteration time " << avg_time / (loop + 1);
   mypcl::write_ref(ref_vec, data_path);
 
   Eigen::Quaterniond q0(pose_vec[0].q.w(), pose_vec[0].q.x(), pose_vec[0].q.y(),

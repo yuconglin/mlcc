@@ -1,5 +1,6 @@
 #include "global.hpp"
 
+#include <glog/logging.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/PointCloud2.h>
 
@@ -130,8 +131,8 @@ int main(int argc, char** argv) {
 
   int loop = 0;
   for (; loop < max_iter; loop++) {
-    cout << "---------------------" << endl;
-    cout << "iteration " << loop << endl;
+    LOG(INFO) << "---------------------";
+    LOG(INFO) << "iteration " << loop;
     t_begin = ros::Time::now();
     unordered_map<VOXEL_LOC, OCTO_TREE*> surf_map;
     LM_OPTIMIZER lm_opt(pose_size, ref_size);
@@ -177,13 +178,13 @@ int main(int argc, char** argv) {
     for (auto iter = surf_map.begin(); iter != surf_map.end(); ++iter)
       delete iter->second;
     t_end = ros::Time::now();
-    cout << "time cost " << (t_end - t_begin).toSec() << endl;
+    LOG(INFO) << "time cost " << (t_end - t_begin).toSec();
     avg_time += (t_end - t_begin).toSec();
   }
 
-  cout << "---------------------" << endl;
-  cout << "complete" << endl;
-  cout << "averaged iteration time " << avg_time / (loop + 1) << endl;
+  LOG(INFO) << "---------------------";
+  LOG(INFO) << "complete";
+  LOG(INFO) << "averaged iteration time " << avg_time / (loop + 1);
   mypcl::write_pose(pose_vec, ref_vec, data_path);
 
   Eigen::Quaterniond q0(pose_vec[0].q.w(), pose_vec[0].q.x(), pose_vec[0].q.y(),
