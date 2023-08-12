@@ -19,21 +19,23 @@ void cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE*>& feature_map,
                Eigen::Quaterniond q, Eigen::Vector3d t, int f_head,
                int baselidar_sz, int exlidar_sz, double eigen_threshold,
                int exlidar_n = 0, bool is_base_lidar = true) {
-  uint pt_size = feature_pts->size();
+  const uint pt_size = feature_pts->size();
   for (uint i = 0; i < pt_size; i++) {
-    PointType& pt = feature_pts->points[i];
-    Eigen::Vector3d pt_origin(pt.x, pt.y, pt.z);
-    Eigen::Vector3d pt_trans = q * pt_origin + t;
+    const PointType& pt = feature_pts->points[i];
+    const Eigen::Vector3d pt_origin(pt.x, pt.y, pt.z);
+    const Eigen::Vector3d pt_trans = q * pt_origin + t;
 
     float loc_xyz[3];
     for (int j = 0; j < 3; j++) {
       loc_xyz[j] = pt_trans[j] / voxel_size;
-      if (loc_xyz[j] < 0) loc_xyz[j] -= 1.0;
+      if (loc_xyz[j] < 0) {
+        loc_xyz[j] -= 1.0;
+      }
     }
 
-    VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1],
-                       (int64_t)loc_xyz[2]);
-    auto iter = feature_map.find(position);
+    const VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1],
+                             (int64_t)loc_xyz[2]);
+    const auto iter = feature_map.find(position);
     if (iter != feature_map.end()) {
       if (is_base_lidar) {
         iter->second->baseOriginPc[f_head]->emplace_back(pt_origin);
@@ -140,14 +142,11 @@ int main(int argc, char** argv) {
 
     for (size_t i = 0; i < pose_size; i++) {
       downsample_voxel(*base_pc[i], downsmp_base);
-      for (int j = 0; j < ref_size; j++) {
-        downsample_voxel(*ref_pc[j * pose_size + i], downsmp_ref);
-      }
-
       cut_voxel(surf_map, base_pc[i], pose_vec[i].q, pose_vec[i].t, i,
                 pose_size, ref_size, eigen_thr);
 
       for (size_t j = 0; j < ref_size; j++) {
+        downsample_voxel(*ref_pc[j * pose_size + i], downsmp_ref);
         cut_voxel(surf_map, ref_pc[j * pose_size + i],
                   pose_vec[i].q * ref_vec[j].q,
                   pose_vec[i].q * ref_vec[j].t + pose_vec[i].t, i, pose_size,
@@ -155,28 +154,36 @@ int main(int argc, char** argv) {
       }
     }
 
-    for (auto iter = surf_map.begin(); iter != surf_map.end(); ++iter)
+    for (auto iter = surf_map.begin(); iter != surf_map.end(); ++iter) {
       iter->second->recut();
+    }
 
-    for (size_t i = 0; i < pose_size; i++)
+    for (size_t i = 0; i < pose_size; i++) {
       assign_qt(lm_opt.poses[i], lm_opt.ts[i], pose_vec[i].q, pose_vec[i].t);
+    }
 
-    for (size_t i = 0; i < ref_size; i++)
+    for (size_t i = 0; i < ref_size; i++) {
       assign_qt(lm_opt.refQs[i], lm_opt.refTs[i], ref_vec[i].q, ref_vec[i].t);
+    }
 
-    for (auto iter = surf_map.begin(); iter != surf_map.end(); ++iter)
+    for (auto iter = surf_map.begin(); iter != surf_map.end(); ++iter) {
       iter->second->feed_pt(lm_opt);
+    }
 
     lm_opt.optimize();
 
-    for (size_t i = 0; i < pose_size; i++)
+    for (size_t i = 0; i < pose_size; i++) {
       assign_qt(pose_vec[i].q, pose_vec[i].t, lm_opt.poses[i], lm_opt.ts[i]);
+    }
 
-    for (size_t i = 0; i < ref_size; i++)
+    for (size_t i = 0; i < ref_size; i++) {
       assign_qt(ref_vec[i].q, ref_vec[i].t, lm_opt.refQs[i], lm_opt.refTs[i]);
+    }
 
-    for (auto iter = surf_map.begin(); iter != surf_map.end(); ++iter)
+    for (auto iter = surf_map.begin(); iter != surf_map.end(); ++iter) {
       delete iter->second;
+    }
+
     t_end = ros::Time::now();
     LOG(INFO) << "time cost " << (t_end - t_begin).toSec();
     avg_time += (t_end - t_begin).toSec();
@@ -201,6 +208,7 @@ int main(int argc, char** argv) {
     colorCloudMsg.header.frame_id = "camera_init";
     colorCloudMsg.header.stamp = cur_t;
     pub_surf.publish(colorCloudMsg);
+
     {
       int j = 0;
       pcl::io::loadPCDFile(
@@ -216,6 +224,7 @@ int main(int argc, char** argv) {
       colorCloudMsg.header.stamp = cur_t;
       pub_surf1.publish(colorCloudMsg);
     }
+
     {
       int j = 1;
       pcl::io::loadPCDFile(
@@ -231,6 +240,7 @@ int main(int argc, char** argv) {
       colorCloudMsg.header.stamp = cur_t;
       pub_surf2.publish(colorCloudMsg);
     }
+
     if (ref_lidar3 != -1) {
       int j = 2;
       pcl::io::loadPCDFile(

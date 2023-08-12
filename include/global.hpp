@@ -22,9 +22,6 @@ class LM_OPTIMIZER {
   std::vector<std::vector<int>*> baseWinNums;
   std::vector<std::vector<vector_vec3d*>> refOriginPts;
   std::vector<std::vector<std::vector<int>*>> refWinNums;
-  // ros::NodeHandle _nh;
-  // ros::Publisher pub_surf;
-  // ros::Publisher pub_surf_debug;
 
   LM_OPTIMIZER(size_t win_sz, size_t r_sz) : pose_size(win_sz), ref_size(r_sz) {
     jacob_len = (pose_size + ref_size) * 6;
@@ -38,9 +35,6 @@ class LM_OPTIMIZER {
     refTsTmp.resize(ref_size);
     refOriginPts.resize(ref_size);
     refWinNums.resize(ref_size);
-    // pub_surf = _nh.advertise<sensor_msgs::PointCloud2>("/map_surf", 100);
-    // pub_surf_debug = _nh.advertise<sensor_msgs::PointCloud2>("/debug_surf",
-    // 100);
   };
 
   ~LM_OPTIMIZER() {
@@ -65,8 +59,8 @@ class LM_OPTIMIZER {
 
   void get_center(vector_vec3d& originPc, int cur_frame, vector_vec3d& originPt,
                   std::vector<int>& winNum, int filterNum) {
-    size_t pt_size = originPc.size();
-    if (pt_size <= (size_t)filterNum) {
+    const size_t pt_size = originPc.size();
+    if (pt_size <= filterNum) {
       for (size_t i = 0; i < pt_size; i++) {
         originPt.emplace_back(originPc[i]);
         winNum.emplace_back(cur_frame);
@@ -75,15 +69,17 @@ class LM_OPTIMIZER {
     }
 
     Eigen::Vector3d center;
-    double part = 1.0 * pt_size / filterNum;
+    const double part = 1.0 * pt_size / filterNum;
 
     for (int i = 0; i < filterNum; i++) {
       size_t np = part * i;
       size_t nn = part * (i + 1);
       center.setZero();
-      for (size_t j = np; j < nn; j++) center += originPc[j];
+      for (size_t j = np; j < nn; j++) {
+        center += originPc[j];
+      }
 
-      center = center / (nn - np);
+      center /= nn - np;
       originPt.emplace_back(center);
       winNum.emplace_back(cur_frame);
     }
@@ -92,17 +88,26 @@ class LM_OPTIMIZER {
   void push_voxel(std::vector<vector_vec3d*>& baseOriginPc,
                   std::vector<std::vector<vector_vec3d*>>& refOriginPc) {
     int baseLidarPc = 0;
-    for (int i = 0; i < pose_size; i++)
-      if (!baseOriginPc[i]->empty()) baseLidarPc++;
+    for (int i = 0; i < pose_size; i++) {
+      if (!baseOriginPc[i]->empty()) {
+        baseLidarPc++;
+      }
+    }
 
     int refLidarPc = 0;
-    for (int j = 0; j < ref_size; j++)
-      for (int i = 0; i < pose_size; i++)
-        if (!refOriginPc[j][i]->empty()) refLidarPc++;
+    for (int j = 0; j < ref_size; j++) {
+      for (int i = 0; i < pose_size; i++) {
+        if (!refOriginPc[j][i]->empty()) {
+          refLidarPc++;
+        }
+      }
+    }
 
-    if (refLidarPc + baseLidarPc <= 1) return;
+    if (refLidarPc + baseLidarPc <= 1) {
+      return;
+    }
 
-    int filterNum = 4;
+    constexpr int filterNum = 4;
     int baseLidarPt = 0;
     int refLidarPt = 0;
 
@@ -110,9 +115,12 @@ class LM_OPTIMIZER {
     std::vector<int>* baseWinNum = new std::vector<int>();
     baseWinNum->reserve(filterNum * pose_size);
     baseOriginPt->reserve(filterNum * pose_size);
-    for (int i = 0; i < pose_size; i++)
-      if (!baseOriginPc[i]->empty())
+
+    for (int i = 0; i < pose_size; i++) {
+      if (!baseOriginPc[i]->empty()) {
         get_center(*baseOriginPc[i], i, *baseOriginPt, *baseWinNum, filterNum);
+      }
+    }
 
     baseLidarPt += baseOriginPt->size();
     baseOriginPts.emplace_back(baseOriginPt);  // Note they might be empty
@@ -124,10 +132,13 @@ class LM_OPTIMIZER {
       std::vector<int>* refWinNum = new std::vector<int>();
       refWinNum->reserve(filterNum * pose_size);
       refOriginPt->reserve(filterNum * pose_size);
-      for (int i = 0; i < pose_size; i++)
-        if (!refOriginPc[j][i]->empty())
+
+      for (int i = 0; i < pose_size; i++) {
+        if (!refOriginPc[j][i]->empty()) {
           get_center(*refOriginPc[j][i], i, *refOriginPt, *refWinNum,
                      filterNum);
+        }
+      }
 
       refLidarPt += refOriginPt->size();
       refOriginPts[j].emplace_back(refOriginPt);
@@ -141,73 +152,84 @@ class LM_OPTIMIZER {
   }
 
   void optimize() {
-    double u = 0.001, v = 2;
-    Eigen::MatrixXd D(jacob_len, jacob_len), Hess(jacob_len, jacob_len),
-        _Hess(ref_size * 6, ref_size * 6);
-    Eigen::VectorXd JacT(jacob_len), JacT3(jacob_len), dxi(jacob_len),
-        debug_H(jacob_len);
+    Eigen::MatrixXd D(jacob_len, jacob_len);
+    Eigen::MatrixXd Hess(jacob_len, jacob_len);
+    Eigen::MatrixXd _Hess(ref_size * 6, ref_size * 6);
+    Eigen::VectorXd JacT(jacob_len);
+    Eigen::VectorXd JacT3(jacob_len);
+    Eigen::VectorXd dxi(jacob_len);
+    Eigen::VectorXd debug_H(jacob_len);
 
     Eigen::MatrixXd Hess2(jacob_len, jacob_len);
     Eigen::VectorXd JacT2(jacob_len);
 
-    vector_quad RQs;
-    RQs.resize(ref_size);
-    vector_vec3d RTs;
-    RTs.resize(ref_size);
-    double delta = 1e-8;
-    Eigen::Vector3d dx(delta, 0, 0), dy(0, delta, 0), dz(0, 0, delta);
+    vector_quad RQs(ref_size);
+    vector_vec3d RTs(ref_size);
 
-    D.setIdentity();
-    double residual1, residual2, q;
+    double residual1;
+    double residual2;
     bool is_calc_hess = true;
 
     cv::Mat matA(jacob_len, jacob_len, CV_64F, cv::Scalar::all(0));
     cv::Mat matB(jacob_len, 1, CV_64F, cv::Scalar::all(0));
     cv::Mat matX(jacob_len, 1, CV_64F, cv::Scalar::all(0));
 
+    double u = 0.001;
+    double v = 2;
+
     for (int loop = 0; loop < 20; loop++) {
-      if (is_calc_hess)
+      if (is_calc_hess) {
         divide_thread(poses, ts, refQs, refTs, Hess, JacT, residual1);
+      }
 
       D = Hess.diagonal().asDiagonal();
       Hess2 = Hess + u * D;
 
       for (int j = 0; j < jacob_len; j++) {
         matB.at<double>(j, 0) = -JacT(j, 0);
-        for (int f = 0; f < jacob_len; f++) matA.at<double>(j, f) = Hess2(j, f);
+        for (int f = 0; f < jacob_len; f++) {
+          matA.at<double>(j, f) = Hess2(j, f);
+        }
       }
       cv::solve(matA, matB, matX, cv::DECOMP_QR);
 
-      for (int j = 0; j < jacob_len; j++) dxi(j, 0) = matX.at<double>(j, 0);
+      for (int j = 0; j < jacob_len; j++) {
+        dxi(j, 0) = matX.at<double>(j, 0);
+      }
 
       for (int i = 0; i < pose_size; i++) {
-        Eigen::Quaterniond q_tmp(exp(dxi.block<3, 1>(6 * i, 0)) * poses[i]);
-        Eigen::Vector3d t_tmp(dxi.block<3, 1>(6 * i + 3, 0) + ts[i]);
+        const Eigen::Quaterniond q_tmp(exp(dxi.block<3, 1>(6 * i, 0)) *
+                                       poses[i]);
+        const Eigen::Vector3d t_tmp(dxi.block<3, 1>(6 * i + 3, 0) + ts[i]);
         assign_qt(posesTmp[i], tsTmp[i], q_tmp, t_tmp);
       }
+
       for (int i = pose_size; i < pose_size + ref_size; i++) {
-        Eigen::Quaterniond q_tmp(exp(dxi.block<3, 1>(6 * i, 0)) *
-                                 refQs[i - pose_size]);
-        Eigen::Vector3d t_tmp(dxi.block<3, 1>(6 * i + 3, 0) +
-                              refTs[i - pose_size]);
+        const Eigen::Quaterniond q_tmp(exp(dxi.block<3, 1>(6 * i, 0)) *
+                                       refQs[i - pose_size]);
+        const Eigen::Vector3d t_tmp(dxi.block<3, 1>(6 * i + 3, 0) +
+                                    refTs[i - pose_size]);
         assign_qt(refQsTmp[i - pose_size], refTsTmp[i - pose_size], q_tmp,
                   t_tmp);
       }
 
-      double q1 = 0.5 * (dxi.transpose() * (u * D * dxi - JacT))[0];
+      const double q1 = 0.5 * (dxi.transpose() * (u * D * dxi - JacT))[0];
       evaluate_only_residual(posesTmp, tsTmp, refQsTmp, refTsTmp, residual2);
 
-      q = (residual1 - residual2);
-      // printf("residual %d: %lf %lf u: %lf v: %lf q: %lf %lf %lf\n",
-      // 	   loop, residual1, residual2, u, v, q/q1, q1, q);
+      double q = residual1 - residual2;
+
       assert(!std::isnan(residual1));
       assert(!std::isnan(residual2));
 
       if (q > 0) {
-        for (int i = 0; i < pose_size; i++)
+        for (int i = 0; i < pose_size; i++) {
           assign_qt(poses[i], ts[i], posesTmp[i], tsTmp[i]);
-        for (int i = 0; i < ref_size; i++)
+        }
+
+        for (int i = 0; i < ref_size; i++) {
           assign_qt(refQs[i], refTs[i], refQsTmp[i], refTsTmp[i]);
+        }
+
         q = q / q1;
         v = 2;
         q = 1 - pow(2 * q - 1, 3);
@@ -219,7 +241,9 @@ class LM_OPTIMIZER {
         is_calc_hess = false;
       }
 
-      if (fabs(residual1 - residual2) < 1e-9) break;
+      if (fabs(residual1 - residual2) < 1e-9) {
+        break;
+      }
     }
   }
 
@@ -230,22 +254,25 @@ class LM_OPTIMIZER {
     JacT.setZero();
     residual = 0;
 
-    std::vector<Eigen::MatrixXd> hessians(4, Hess);
-    std::vector<Eigen::VectorXd> jacobians(4, JacT);
-    std::vector<double> resis(4, 0);
+    const int total_pose_num = refQs.size() + 1;
+    assert(refQs.size() == refTs.size());
 
-    uint gps_size = baseOriginPts.size();
-    if (gps_size < (uint)4) {
+    std::vector<Eigen::MatrixXd> hessians(total_pose_num, Hess);
+    std::vector<Eigen::VectorXd> jacobians(total_pose_num, JacT);
+    std::vector<double> resis(total_pose_num, 0);
+
+    const uint gps_size = baseOriginPts.size();
+    if (gps_size < total_pose_num) {
       calculate_HJ(poses, ts, refQs, refTs, 0, gps_size, Hess, JacT, residual);
       return;
     }
 
-    std::vector<std::thread*> mthreads(4);
+    std::vector<std::thread*> mthreads(total_pose_num);
 
-    double part = 1.0 * (gps_size) / 4;
-    for (int i = 0; i < 4; i++) {
-      int np = part * i;
-      int nn = part * (i + 1);
+    const double part = 1.0 * gps_size / total_pose_num;
+    for (int i = 0; i < total_pose_num; i++) {
+      const int np = part * i;
+      const int nn = part * (i + 1);
 
       mthreads[i] = new std::thread(
           &LM_OPTIMIZER::calculate_HJ, this, std::ref(poses), std::ref(ts),
@@ -253,7 +280,7 @@ class LM_OPTIMIZER {
           std::ref(jacobians[i]), std::ref(resis[i]));
     }
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < total_pose_num; i++) {
       mthreads[i]->join();
       Hess += hessians[i];
       JacT += jacobians[i];
@@ -262,64 +289,88 @@ class LM_OPTIMIZER {
     }
   }
 
-  void calculate_HJ(vector_quad& poses, vector_vec3d& ts, vector_quad& refQs,
+  // (NOTE) BALM paper: https://arxiv.org/pdf/2010.08215.pdf.
+  //        MLCC paper: https://arxiv.org/pdf/2109.06550.pdf.
+  void calculate_HJ(vector_quad& rots, vector_vec3d& ts, vector_quad& refQs,
                     vector_vec3d& refTs, int head, int end,
                     Eigen::MatrixXd& Hess, Eigen::VectorXd& JacT,
                     double& residual) {
     Hess.setZero();
     JacT.setZero();
     residual = 0;
+    // Note that JacT is already transpose of ordinary Jacobian according to
+    // definition.
     Eigen::MatrixXd _jact(JacT);
 
     for (int i = head; i < end; i++) {
-      vector_vec3d& baseorigin_pts = *baseOriginPts[i];
-      std::vector<int>& basewin_num = *baseWinNums[i];
-      size_t basepts_size = baseorigin_pts.size();
+      const vector_vec3d& baseorigin_pts = *baseOriginPts[i];
+      const std::vector<int>& basewin_num = *baseWinNums[i];
+      const size_t basepts_size = baseorigin_pts.size();
 
       size_t refpts_size_all = 0;
-      std::vector<int> refpts_size, refpts_size_part;
+      std::vector<int> refpts_size;
+      std::vector<int> refpts_size_part;
       refpts_size.reserve(ref_size);
       refpts_size_part.reserve(ref_size + 1);
+
       refpts_size_part.emplace_back(0);
+
       for (int j = 0; j < ref_size; j++) {
-        vector_vec3d& reforigin_pts = *refOriginPts[j][i];
+        const vector_vec3d& reforigin_pts = *refOriginPts[j][i];
         refpts_size.emplace_back(reforigin_pts.size());
         refpts_size_all += reforigin_pts.size();
         int temp = 0;
-        for (int k = 0; k <= j; k++) temp += refOriginPts[k][i]->size();
+        for (int k = 0; k <= j; k++) {
+          temp += refOriginPts[k][i]->size();
+        }
         refpts_size_part.emplace_back(temp);
       }
 
-      double N = refpts_size_all + basepts_size;
-      int _N = (int)N;
-      Eigen::MatrixXd _H(3 * _N, 3 * _N);
+      const int N = refpts_size_all + basepts_size;
+      const double ratio_N = static_cast<double>(N - 1) / N;
+      const double inv_N = 1.0 / N;
+
+      Eigen::MatrixXd _H(3 * N, 3 * N);
       _H.setZero();
-      Eigen::MatrixXd _D(3 * _N, jacob_len);
+      Eigen::MatrixXd _D(3 * N, jacob_len);
       _D.setZero();
 
       Eigen::Vector3d vec_tran;
-      vector_vec3d pt_trans(basepts_size + refpts_size_all);
-      std::vector<Eigen::Matrix3d> point_xis(basepts_size + refpts_size_all);
-      std::vector<Eigen::Matrix3d> point_xic(basepts_size + refpts_size_all);
-      Eigen::Vector3d center(Eigen::Vector3d::Zero());
-      Eigen::Matrix3d covMat(Eigen::Matrix3d::Zero());
+      vector_vec3d pt_trans(N);
+      std::vector<Eigen::Matrix3d> point_xis(N);
+      std::vector<Eigen::Matrix3d> point_xic(N);
+      Eigen::Vector3d center = Eigen::Vector3d::Zero();
+      Eigen::Matrix3d covMat = Eigen::Matrix3d::Zero();
 
+      // Base LiDAR's points.
       for (size_t j = 0; j < basepts_size; j++) {
-        vec_tran = poses[basewin_num[j]] * baseorigin_pts[j];
+        vec_tran = rots[basewin_num[j]] * baseorigin_pts[j];
+
+        // The following equation is left disturb. Please refer to Equation
+        // (4.41) of SLAM 14 book.
         point_xis[j] = -wedge(vec_tran);
+
         pt_trans[j] = vec_tran + ts[basewin_num[j]];
         center += pt_trans[j];
         covMat += pt_trans[j] * pt_trans[j].transpose();
       }
 
+      // Ref LiDAR's points.
       size_t cnt = 0;
+
       for (int k = 0; k < ref_size; k++) {
-        vector_vec3d& reforigin_pts = *refOriginPts[k][i];
-        std::vector<int>& refwin_num = *refWinNums[k][i];
+        const vector_vec3d& reforigin_pts = *refOriginPts[k][i];
+        const std::vector<int>& refwin_num = *refWinNums[k][i];
+
         for (size_t j = 0; j < reforigin_pts.size(); j++) {
           vec_tran =
-              poses[refwin_num[j]] * (refQs[k] * reforigin_pts[j] + refTs[k]);
+              rots[refwin_num[j]] * (refQs[k] * reforigin_pts[j] + refTs[k]);
+
+          // The following equation is left disturb. Please refer to Equation
+          // (4.41) of SLAM 14 book.
+          // This is for the first part of Equation (26) of mlcc paper.
           point_xis[cnt + basepts_size] = -wedge(vec_tran);
+
           pt_trans[cnt + basepts_size] = vec_tran + ts[refwin_num[j]];
           center += pt_trans[cnt + basepts_size];
           covMat += pt_trans[cnt + basepts_size] *
@@ -329,53 +380,78 @@ class LM_OPTIMIZER {
       }
 
       cnt = 0;
-      for (size_t j = 0; j < basepts_size; j++)
+
+      for (size_t j = 0; j < basepts_size; j++) {
         point_xic[j] = Eigen::MatrixXd::Zero(3, 3);
+      }
+
       for (int k = 0; k < ref_size; k++) {
-        vector_vec3d& reforigin_pts = *refOriginPts[k][i];
+        const vector_vec3d& reforigin_pts = *refOriginPts[k][i];
+
         for (size_t j = 0; j < reforigin_pts.size(); j++) {
           vec_tran = refQs[k] * reforigin_pts[j];
+
+          // The following equation is left disturb. Please refer to Equation
+          // (4.41) of SLAM 14 book.
+          // This is for the second part of Equation (26) of MLCC paper.
           point_xic[cnt + basepts_size] = -wedge(vec_tran);
           cnt++;
         }
       }
 
-      covMat = covMat - center * center.transpose() / N;
-      covMat = covMat / N;
-      center = center / N;
+      covMat = covMat - center * center.transpose() * inv_N;
+      covMat = covMat * inv_N;
+      center = center * inv_N;
 
       Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
       Eigen::Vector3d eigen_value = saes.eigenvalues();
 
       Eigen::Matrix3d U = saes.eigenvectors();
       Eigen::Vector3d u[3];
-      for (int j = 0; j < 3; j++) u[j] = U.block<3, 1>(0, j);
+      for (int j = 0; j < 3; j++) {
+        u[j] = U.block<3, 1>(0, j);
+      }
 
       Eigen::Matrix3d ukukT = u[0] * u[0].transpose();
       Eigen::Vector3d vec_Jt;
+
       for (size_t j = 0; j < basepts_size; j++) {
         pt_trans[j] = pt_trans[j] - center;
-        vec_Jt = 2.0 / N * ukukT * pt_trans[j];
+
+        // The following is the transpose of equation (6) of BALM paper.
+        vec_Jt = 2.0 * inv_N * ukukT * pt_trans[j];
+
+        // For the following two equations, please refer to equation (10) and
+        // (11) of BALM paper, and equation (4.41) of SLAM 14 book.
+        // We have a minus sign because of transpose of cross matrix.
         _jact.block<3, 1>(6 * basewin_num[j], 0) -= point_xis[j] * vec_Jt;
         _jact.block<3, 1>(6 * basewin_num[j] + 3, 0) += vec_Jt;
       }
 
       cnt = 0;
       for (int k = 0; k < ref_size; k++) {
-        vector_vec3d& reforigin_pts = *refOriginPts[k][i];
-        std::vector<int>& refwin_num = *refWinNums[k][i];
+        const vector_vec3d& reforigin_pts = *refOriginPts[k][i];
+        const std::vector<int>& refwin_num = *refWinNums[k][i];
+
         for (size_t j = 0; j < reforigin_pts.size(); j++) {
-          pt_trans[cnt + basepts_size] = pt_trans[cnt + basepts_size] - center;
-          vec_Jt = 2.0 / N * ukukT * pt_trans[cnt + basepts_size];
+          pt_trans[cnt + basepts_size] -= center;
+
+          // The following is the transpose of equation (6) of BALM paper.
+          vec_Jt = 2.0 * inv_N * ukukT * pt_trans[cnt + basepts_size];
+
+          // For the following two equations, please refer to equation (26)
+          // of MLCC paper, and equation (4.41) of SLAM 14 book.
+          // We have a minus sign because of transpose of cross matrix.
           _jact.block<3, 1>(6 * refwin_num[j], 0) -=
               point_xis[cnt + basepts_size] * vec_Jt;
           _jact.block<3, 1>(6 * refwin_num[j] + 3, 0) += vec_Jt;
 
           _jact.block<3, 1>(6 * pose_size + 6 * k, 0) -=
               point_xic[cnt + basepts_size] *
-              poses[refwin_num[j]].toRotationMatrix().transpose() * vec_Jt;
+              rots[refwin_num[j]].toRotationMatrix().transpose() * vec_Jt;
           _jact.block<3, 1>(6 * pose_size + 3 + 6 * k, 0) +=
-              poses[refwin_num[j]].toRotationMatrix().transpose() * vec_Jt;
+              rots[refwin_num[j]].toRotationMatrix().transpose() * vec_Jt;
+
           cnt++;
         }
       }
@@ -384,53 +460,70 @@ class LM_OPTIMIZER {
       Eigen::Matrix3d Hessian33;
       Eigen::Matrix3d F;
       std::vector<Eigen::Matrix3d> F_(3);
+
+      // This loop corresponds to part of block 3 of Equation (7) of BALM paper.
       for (size_t j = 0; j < 3; j++) {
         if (j == 0) {
           F_[j].setZero();
           continue;
         }
+
         Hessian33 = u[j] * u[0].transpose();
-        F_[j] = 1.0 / N / (eigen_value[0] - eigen_value[j]) *
+        F_[j] = inv_N * (eigen_value[0] - eigen_value[j]) *
                 (Hessian33 + Hessian33.transpose());
       }
 
       size_t colnum_s;
 
       for (size_t j = 0; j < N; j++) {
-        for (int f = 0; f < 3; f++)
+        // This loop corresponds to part of block 3 of Equation (7) of BALM
+        // paper.
+        for (int f = 0; f < 3; f++) {
           F.block<1, 3>(f, 0) = pt_trans[j].transpose() * F_[f];
+        }
+
+        // This equation corresponds to part of block 1 of Equation (1) of BALM
+        // paper.
         F = U * F;
 
         for (size_t k = 0; k < N; k++) {
+          // The equations corresponds to part of block 1 of Equation (1) of
+          // BALM
           Hessian33 =
               u[0] * (pt_trans[k]).transpose() * F + u[0].dot(pt_trans[k]) * F;
-          if (k == j)
-            Hessian33 += (N - 1) / N * ukukT;
-          else
-            Hessian33 -= 1.0 / N * ukukT;
 
-          Hessian33 = 2.0 / N * Hessian33;
+          if (k == j) {
+            Hessian33 += ratio_N * ukukT;
+          } else {
+            Hessian33 -= inv_N * ukukT;
+          }
+
+          Hessian33 = 2.0 * inv_N * Hessian33;
           _H.block<3, 3>(3 * k, 3 * j) = Hessian33;
         }
 
         if (j < basepts_size) {
           colnum_s = 6 * basewin_num[j];
+          // Equation (12) of BALM paper.
           _D.block<3, 3>(3 * j, colnum_s) = point_xis[j];
           _D.block<3, 3>(3 * j, colnum_s + 3) = Eigen::MatrixXd::Identity(3, 3);
         } else {
           int base_pose;
-          for (int a = 0; a < ref_size; a++)
+          for (int a = 0; a < ref_size; ++a)
             if (j - basepts_size < refpts_size_part[a + 1]) {
-              std::vector<int>& refwin_num = *refWinNums[a][i];
+              const std::vector<int>& refwin_num = *refWinNums[a][i];
               colnum_s = 6 * refwin_num[j - basepts_size - refpts_size_part[a]];
-              base_pose = refwin_num[j - basepts_size - refpts_size_part[a]];
+              base_pose = colnum_s;
+              // Equation (12) of BALM paper.
               _D.block<3, 3>(3 * j, colnum_s) = point_xis[j];
               _D.block<3, 3>(3 * j, colnum_s + 3) =
                   Eigen::MatrixXd::Identity(3, 3);
+
               colnum_s = 6 * (pose_size + a);
-              _D.block<3, 3>(3 * j, colnum_s) = poses[base_pose] * point_xic[j];
+              // Equation (26) of MLCC paper.
+              _D.block<3, 3>(3 * j, colnum_s) = rots[base_pose] * point_xic[j];
               _D.block<3, 3>(3 * j, colnum_s + 3) =
-                  poses[base_pose].toRotationMatrix();
+                  rots[base_pose].toRotationMatrix();
               break;
             }
         }
@@ -448,7 +541,6 @@ class LM_OPTIMIZER {
                               double& residual) {
     residual = 0;
     size_t voxel_size = baseOriginPts.size();
-    // LOG(INFO)<<"voxel_size "<<voxel_size;
     Eigen::Vector3d pt_trans, new_center;
     Eigen::Matrix3d new_A;
 
