@@ -194,9 +194,11 @@ int main(int argc, char** argv) {
   LOG(INFO) << "averaged iteration time " << avg_time / (loop + 1);
   mypcl::write_pose(pose_vec, ref_vec, data_path);
 
-  Eigen::Quaterniond q0(pose_vec[0].q.w(), pose_vec[0].q.x(), pose_vec[0].q.y(),
-                        pose_vec[0].q.z());
-  Eigen::Vector3d t0(pose_vec[0].t(0), pose_vec[0].t(1), pose_vec[0].t(2));
+  const Eigen::Quaterniond q0(pose_vec[0].q.w(), pose_vec[0].q.x(),
+                              pose_vec[0].q.y(), pose_vec[0].q.z());
+  const Eigen::Vector3d t0(pose_vec[0].t(0), pose_vec[0].t(1),
+                           pose_vec[0].t(2));
+
   for (size_t i = 0; i < pose_size; i++) {
     pcl::io::loadPCDFile(
         data_path + to_string(base_lidar) + "/" + to_string(i) + ".pcd",

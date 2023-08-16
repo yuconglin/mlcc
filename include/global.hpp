@@ -222,6 +222,7 @@ class LM_OPTIMIZER {
       assert(!std::isnan(residual2));
 
       if (q > 0) {
+        LOG(INFO) << "........... residual decreased !";
         for (int i = 0; i < pose_size; i++) {
           assign_qt(poses[i], ts[i], posesTmp[i], tsTmp[i]);
         }
@@ -236,6 +237,7 @@ class LM_OPTIMIZER {
         u *= (q < 1.0 / 3 ? 1.0 / 3 : q);
         is_calc_hess = true;
       } else {
+        LOG(INFO) << "........... residual not decreased !";
         u = u * v;
         v = 2 * v;
         is_calc_hess = false;
@@ -308,16 +310,13 @@ class LM_OPTIMIZER {
       const size_t basepts_size = baseorigin_pts.size();
 
       size_t refpts_size_all = 0;
-      std::vector<int> refpts_size;
       std::vector<int> refpts_size_part;
-      refpts_size.reserve(ref_size);
       refpts_size_part.reserve(ref_size + 1);
 
       refpts_size_part.emplace_back(0);
 
       for (int j = 0; j < ref_size; j++) {
         const vector_vec3d& reforigin_pts = *refOriginPts[j][i];
-        refpts_size.emplace_back(reforigin_pts.size());
         refpts_size_all += reforigin_pts.size();
         int temp = 0;
         for (int k = 0; k <= j; k++) {
