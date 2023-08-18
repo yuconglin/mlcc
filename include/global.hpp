@@ -265,7 +265,8 @@ class LM_OPTIMIZER {
 
     const uint gps_size = baseOriginPts.size();
     if (gps_size < total_pose_num) {
-      calculate_HJ(poses, ts, refQs, refTs, 0, gps_size, Hess, JacT, residual);
+      calculate_HJ_orig(poses, ts, refQs, refTs, 0, gps_size, Hess, JacT,
+                        residual);
       return;
     }
 
@@ -277,7 +278,7 @@ class LM_OPTIMIZER {
       const int nn = part * (i + 1);
 
       mthreads[i] = new std::thread(
-          &LM_OPTIMIZER::calculate_HJ, this, std::ref(poses), std::ref(ts),
+          &LM_OPTIMIZER::calculate_HJ_orig, this, std::ref(poses), std::ref(ts),
           std::ref(refQs), std::ref(refTs), np, nn, std::ref(hessians[i]),
           std::ref(jacobians[i]), std::ref(resis[i]));
     }
@@ -312,7 +313,6 @@ class LM_OPTIMIZER {
       size_t refpts_size_all = 0;
       std::vector<int> refpts_size_part;
       refpts_size_part.reserve(ref_size + 1);
-
       refpts_size_part.emplace_back(0);
 
       for (int j = 0; j < ref_size; j++) {
@@ -477,6 +477,7 @@ class LM_OPTIMIZER {
       for (size_t j = 0; j < N; j++) {
         // This loop corresponds to part of block 3 of Equation (7) of BALM
         // paper.
+        F.setZero();
         for (int f = 0; f < 3; f++) {
           F.block<1, 3>(f, 0) = pt_trans[j].transpose() * F_[f];
         }
@@ -512,7 +513,7 @@ class LM_OPTIMIZER {
             if (j - basepts_size < refpts_size_part[a + 1]) {
               const std::vector<int>& refwin_num = *refWinNums[a][i];
               colnum_s = 6 * refwin_num[j - basepts_size - refpts_size_part[a]];
-              base_pose = colnum_s;
+              base_pose = refwin_num[j - basepts_size - refpts_size_part[a]];
               // Equation (12) of BALM paper.
               _D.block<3, 3>(3 * j, colnum_s) = point_xis[j];
               _D.block<3, 3>(3 * j, colnum_s + 3) =
@@ -523,6 +524,210 @@ class LM_OPTIMIZER {
               _D.block<3, 3>(3 * j, colnum_s) = rots[base_pose] * point_xic[j];
               _D.block<3, 3>(3 * j, colnum_s + 3) =
                   rots[base_pose].toRotationMatrix();
+              break;
+            }
+        }
+      }
+
+      residual += eigen_value[0];
+      Hess += _D.transpose() * _H * _D;
+      JacT += _jact;
+      _jact.setZero();
+    }
+  }
+
+  void calculate_HJ_orig(vector_quad& poses, vector_vec3d& ts,
+                         vector_quad& refQs, vector_vec3d& refTs, int head,
+                         int end, Eigen::MatrixXd& Hess, Eigen::VectorXd& JacT,
+                         double& residual) {
+    Hess.setZero();
+    JacT.setZero();
+    residual = 0;
+    Eigen::MatrixXd _jact(JacT);
+
+    for (int i = head; i < end; i++) {
+      const vector_vec3d& baseorigin_pts = *baseOriginPts[i];
+      const std::vector<int>& basewin_num = *baseWinNums[i];
+      const size_t basepts_size = baseorigin_pts.size();
+
+      size_t refpts_size_all = 0;
+      std::vector<int> refpts_size_part;
+      refpts_size_part.reserve(ref_size + 1);
+      refpts_size_part.emplace_back(0);
+
+      for (int j = 0; j < ref_size; j++) {
+        const vector_vec3d& reforigin_pts = *refOriginPts[j][i];
+        refpts_size_all += reforigin_pts.size();
+        int temp = 0;
+        for (int k = 0; k <= j; k++) {
+          temp += refOriginPts[k][i]->size();
+        }
+        refpts_size_part.emplace_back(temp);
+      }
+
+      const int N = refpts_size_all + basepts_size;
+      Eigen::MatrixXd _H(3 * N, 3 * N);
+      _H.setZero();
+      Eigen::MatrixXd _D(3 * N, jacob_len);
+      _D.setZero();
+
+      Eigen::Vector3d vec_tran;
+      vector_vec3d pt_trans(N);
+      std::vector<Eigen::Matrix3d> point_xis(N);
+      std::vector<Eigen::Matrix3d> point_xic(N);
+      Eigen::Vector3d center = Eigen::Vector3d::Zero();
+      Eigen::Matrix3d covMat = Eigen::Matrix3d::Zero();
+
+      for (size_t j = 0; j < basepts_size; j++) {
+        vec_tran = poses[basewin_num[j]] * baseorigin_pts[j];
+        point_xis[j] = -wedge(vec_tran);
+        pt_trans[j] = vec_tran + ts[basewin_num[j]];
+        center += pt_trans[j];
+        covMat += pt_trans[j] * pt_trans[j].transpose();
+      }
+
+      size_t cnt = 0;
+
+      for (int k = 0; k < ref_size; k++) {
+        const vector_vec3d& reforigin_pts = *refOriginPts[k][i];
+        const std::vector<int>& refwin_num = *refWinNums[k][i];
+
+        for (size_t j = 0; j < reforigin_pts.size(); j++) {
+          vec_tran =
+              poses[refwin_num[j]] * (refQs[k] * reforigin_pts[j] + refTs[k]);
+
+          point_xis[cnt + basepts_size] = -wedge(vec_tran);
+
+          pt_trans[cnt + basepts_size] = vec_tran + ts[refwin_num[j]];
+          center += pt_trans[cnt + basepts_size];
+          covMat += pt_trans[cnt + basepts_size] *
+                    pt_trans[cnt + basepts_size].transpose();
+          cnt++;
+        }
+      }
+
+      cnt = 0;
+
+      for (size_t j = 0; j < basepts_size; j++) {
+        point_xic[j] = Eigen::MatrixXd::Zero(3, 3);
+      }
+
+      for (int k = 0; k < ref_size; k++) {
+        const vector_vec3d& reforigin_pts = *refOriginPts[k][i];
+
+        for (size_t j = 0; j < reforigin_pts.size(); j++) {
+          vec_tran = refQs[k] * reforigin_pts[j];
+          point_xic[cnt + basepts_size] = -wedge(vec_tran);
+          cnt++;
+        }
+      }
+
+      covMat = covMat - center * center.transpose() / N;
+      covMat = covMat / N;
+      center = center / N;
+
+      Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
+      Eigen::Vector3d eigen_value = saes.eigenvalues();
+
+      Eigen::Matrix3d U = saes.eigenvectors();
+      Eigen::Vector3d u[3];
+      for (int j = 0; j < 3; j++) {
+        u[j] = U.block<3, 1>(0, j);
+      }
+
+      Eigen::Matrix3d ukukT = u[0] * u[0].transpose();
+      Eigen::Vector3d vec_Jt;
+
+      for (size_t j = 0; j < basepts_size; j++) {
+        pt_trans[j] = pt_trans[j] - center;
+
+        vec_Jt = 2.0 / N * ukukT * pt_trans[j];
+        _jact.block<3, 1>(6 * basewin_num[j], 0) -= point_xis[j] * vec_Jt;
+        _jact.block<3, 1>(6 * basewin_num[j] + 3, 0) += vec_Jt;
+      }
+
+      cnt = 0;
+      for (int k = 0; k < ref_size; k++) {
+        const vector_vec3d& reforigin_pts = *refOriginPts[k][i];
+        const std::vector<int>& refwin_num = *refWinNums[k][i];
+
+        for (size_t j = 0; j < reforigin_pts.size(); j++) {
+          pt_trans[cnt + basepts_size] -= center;
+
+          vec_Jt = 2.0 / N * ukukT * pt_trans[cnt + basepts_size];
+
+          _jact.block<3, 1>(6 * refwin_num[j], 0) -=
+              point_xis[cnt + basepts_size] * vec_Jt;
+          _jact.block<3, 1>(6 * refwin_num[j] + 3, 0) += vec_Jt;
+
+          _jact.block<3, 1>(6 * pose_size + 6 * k, 0) -=
+              point_xic[cnt + basepts_size] *
+              poses[refwin_num[j]].toRotationMatrix().transpose() * vec_Jt;
+          _jact.block<3, 1>(6 * pose_size + 3 + 6 * k, 0) +=
+              poses[refwin_num[j]].toRotationMatrix().transpose() * vec_Jt;
+
+          cnt++;
+        }
+      }
+      assert(cnt == refpts_size_all);
+
+      Eigen::Matrix3d Hessian33;
+      Eigen::Matrix3d F;
+      std::vector<Eigen::Matrix3d> F_(3);
+
+      for (size_t j = 0; j < 3; j++) {
+        if (j == 0) {
+          F_[j].setZero();
+          continue;
+        }
+
+        Hessian33 = u[j] * u[0].transpose();
+        F_[j] = 1.0 / N / (eigen_value[0] - eigen_value[j]) *
+                (Hessian33 + Hessian33.transpose());
+      }
+
+      size_t colnum_s;
+
+      for (size_t j = 0; j < N; j++) {
+        for (int f = 0; f < 3; f++) {
+          F.block<1, 3>(f, 0) = pt_trans[j].transpose() * F_[f];
+        }
+        F = U * F;
+
+        for (size_t k = 0; k < N; k++) {
+          Hessian33 =
+              u[0] * (pt_trans[k]).transpose() * F + u[0].dot(pt_trans[k]) * F;
+
+          if (k == j) {
+            Hessian33 += static_cast<double>(N - 1) / N * ukukT;
+          } else {
+            Hessian33 -= 1.0 / N * ukukT;
+          }
+
+          Hessian33 = 2.0 / N * Hessian33;
+          _H.block<3, 3>(3 * k, 3 * j) = Hessian33;
+        }
+
+        if (j < basepts_size) {
+          colnum_s = 6 * basewin_num[j];
+          _D.block<3, 3>(3 * j, colnum_s) = point_xis[j];
+          _D.block<3, 3>(3 * j, colnum_s + 3) = Eigen::MatrixXd::Identity(3, 3);
+        } else {
+          int base_pose;
+          for (int a = 0; a < ref_size; ++a)
+            if (j - basepts_size < refpts_size_part[a + 1]) {
+              const std::vector<int>& refwin_num = *refWinNums[a][i];
+              colnum_s = 6 * refwin_num[j - basepts_size - refpts_size_part[a]];
+              base_pose = refwin_num[j - basepts_size - refpts_size_part[a]];
+
+              _D.block<3, 3>(3 * j, colnum_s) = point_xis[j];
+              _D.block<3, 3>(3 * j, colnum_s + 3) =
+                  Eigen::MatrixXd::Identity(3, 3);
+
+              colnum_s = 6 * (pose_size + a);
+              _D.block<3, 3>(3 * j, colnum_s) = poses[base_pose] * point_xic[j];
+              _D.block<3, 3>(3 * j, colnum_s + 3) =
+                  poses[base_pose].toRotationMatrix();
               break;
             }
         }
