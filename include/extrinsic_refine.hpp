@@ -179,7 +179,7 @@ class EXTRIN_OPTIMIZER {
       Hess2 = Hess + u * D;
 
       for (int j = 0; j < jacob_len; j++) {
-        // matB.at<double>(j, 0) = -JacT(j, 0);
+        matB.at<double>(j, 0) = -JacT(j, 0);
         for (int f = 0; f < jacob_len; f++) {
           matA.at<double>(j, f) = Hess2(j, f);
         }
@@ -200,7 +200,6 @@ class EXTRIN_OPTIMIZER {
       evaluate_only_residual(poses, ts, refQsTmp, refTsTmp, residual2);
 
       q = residual1 - residual2;
-
       assert(!std::isnan(residual1));
       assert(!std::isnan(residual2));
 
@@ -323,9 +322,12 @@ class EXTRIN_OPTIMIZER {
       }
 
       const int N = point_num + basepts_size;
-      covMat = covMat - center * center.transpose() / N;
-      covMat = covMat / N;
-      center = center / N;
+      const double inv_N = 1.0 / N;
+      const double ratio_N = (N - 1.0) / N;
+
+      covMat = covMat - center * center.transpose() * inv_N;
+      covMat = covMat * inv_N;
+      center = center * inv_N;
 
       Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
       const Eigen::Vector3d eigen_value = saes.eigenvalues();
@@ -346,7 +348,7 @@ class EXTRIN_OPTIMIZER {
         for (size_t j = 0; j < pt_trans[k].size(); ++j) {
           pt_trans[k][j] -= center;
           // df/d(pt_trans[k][j])
-          vec_Jt = 2.0 / N * ukukT * pt_trans[k][j];
+          vec_Jt = 2.0 * inv_N * ukukT * pt_trans[k][j];
 
           const auto R = poses[ref_win_num[j]].toRotationMatrix();
           Eigen::MatrixXd D(3, 6);
@@ -365,7 +367,7 @@ class EXTRIN_OPTIMIZER {
           continue;
         }
         Hessian33 = u[j] * u[0].transpose();
-        F_[j] = 1.0 / N / (eigen_value[0] - eigen_value[j]) *
+        F_[j] = inv_N / (eigen_value[0] - eigen_value[j]) *
                 (Hessian33 + Hessian33.transpose());
       }
 
@@ -399,11 +401,11 @@ class EXTRIN_OPTIMIZER {
                           u[0].dot(pt_trans[k2][j2]) * F;
               if (k1 == k2 && j1 == j2) {
                 // The same point.
-                Hessian33 += static_cast<double>(N - 1) / N * ukukT;
+                Hessian33 += ratio_N * ukukT;
               } else {
-                Hessian33 -= 1.0 / N * ukukT;
+                Hessian33 -= inv_N * ukukT;
               }
-              Hessian33 *= 2.0 / N;
+              Hessian33 *= 2.0 * inv_N;
 
               Eigen::MatrixXd D2(3, 6);
               // point_xis already have a minus sign.
