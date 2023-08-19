@@ -263,6 +263,7 @@ class LM_OPTIMIZER {
     std::vector<Eigen::VectorXd> jacobians(total_pose_num, JacT);
     std::vector<double> resis(total_pose_num, 0);
 
+    // This is the total voxel number.
     const uint gps_size = baseOriginPts.size();
     if (gps_size < total_pose_num) {
       calculate_HJ_orig(poses, ts, refQs, refTs, 0, gps_size, Hess, JacT,

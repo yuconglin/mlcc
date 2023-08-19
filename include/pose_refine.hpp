@@ -26,6 +26,7 @@ class LM_OPTIMIZER {
   std::vector<vector_vec3d*> origin_points;
   std::vector<std::vector<int>*> window_nums;
 
+  // Window size means the number of poses.
   LM_OPTIMIZER(int win_sz) : window_size(win_sz) {
     jacob_len = window_size * 6;
     poses.resize(window_size);
@@ -62,7 +63,9 @@ class LM_OPTIMIZER {
       size_t np = part * i;
       size_t nn = part * (i + 1);
       center.setZero();
-      for (size_t j = np; j < nn; j++) center += origin_pc[j];
+      for (size_t j = np; j < nn; j++) {
+        center += origin_pc[j];
+      }
 
       center = center / (nn - np);
       origin_point.emplace_back(center);
@@ -70,23 +73,33 @@ class LM_OPTIMIZER {
     }
   }
 
-  void push_voxel(std::vector<vector_vec3d*>& origin_pc) {
+  void push_voxel(const std::vector<vector_vec3d*>& origin_pc) {
     uint points_size = 0;
-    for (int i = 0; i < window_size; i++)
-      if (!origin_pc[i]->empty()) points_size++;
+    for (int i = 0; i < window_size; i++) {
+      if (!origin_pc[i]->empty()) {
+        points_size++;
+      }
+    }
 
-    if (points_size <= 1) return;
+    if (points_size <= 1) {
+      return;
+    }
 
     int filternum2use = 4;
 
     vector_vec3d* origin_point = new vector_vec3d();
     std::vector<int>* window_num = new std::vector<int>();
+
     window_num->reserve(filternum2use * window_size);
     origin_point->reserve(filternum2use * window_size);
-    for (int i = 0; i < window_size; i++)
-      if (!origin_pc[i]->empty())
-        get_center(*origin_pc[i], i, *origin_point, *window_num, filternum2use);
 
+    for (int i = 0; i < window_size; i++) {
+      if (!origin_pc[i]->empty()) {
+        get_center(*origin_pc[i], i, *origin_point, *window_num, filternum2use);
+      }
+    }
+
+    // Update vector of point vector.
     origin_points.emplace_back(origin_point);
     window_nums.emplace_back(window_num);
   }
@@ -108,18 +121,24 @@ class LM_OPTIMIZER {
     cv::Mat matX(jacob_len, 1, CV_64F, cv::Scalar::all(0));
 
     for (int loop = 0; loop < 20; loop++) {
-      if (is_calc_hess) calculate_HJ(poses, ts, Hess, JacT, residual1);
+      if (is_calc_hess) {
+        calculate_HJ(poses, ts, Hess, JacT, residual1);
+      }
 
       D = Hess.diagonal().asDiagonal();
       Hess2 = Hess + u * D;
 
       for (int j = 0; j < jacob_len; j++) {
         matB.at<double>(j, 0) = -JacT(j, 0);
-        for (int f = 0; f < jacob_len; f++) matA.at<double>(j, f) = Hess2(j, f);
+        for (int f = 0; f < jacob_len; f++) {
+          matA.at<double>(j, f) = Hess2(j, f);
+        }
       }
       cv::solve(matA, matB, matX, cv::DECOMP_QR);
 
-      for (int j = 0; j < jacob_len; j++) dxi(j, 0) = matX.at<double>(j, 0);
+      for (int j = 0; j < jacob_len; j++) {
+        dxi(j, 0) = matX.at<double>(j, 0);
+      }
 
       for (int i = 0; i < window_size; i++) {
         Eigen::Quaterniond q_tmp(exp(dxi.block<3, 1>(6 * i, 0)) * poses[i]);
@@ -131,14 +150,14 @@ class LM_OPTIMIZER {
       evaluate_only_residual(poses_temp, ts_temp, residual2);
 
       q = (residual1 - residual2);
-      // printf("residual%d: %lf %lf u: %lf v: %lf q: %lf %lf %lf\n",
-      // 	   loop, residual1, residual2, u, v, q/q1, q1, q);
+
       assert(!std::isnan(residual1));
       assert(!std::isnan(residual2));
 
       if (q > 0) {
-        for (int i = 0; i < window_size; i++)
+        for (int i = 0; i < window_size; i++) {
           assign_qt(poses[i], ts[i], poses_temp[i], ts_temp[i]);
+        }
         q = q / q1;
         v = 2;
         q = 1 - pow(2 * q - 1, 3);
@@ -150,7 +169,9 @@ class LM_OPTIMIZER {
         is_calc_hess = false;
       }
 
-      if (fabs(residual1 - residual2) < 1e-9) break;
+      if (fabs(residual1 - residual2) < 1e-9) {
+        break;
+      }
     }
   }
 
@@ -162,12 +183,12 @@ class LM_OPTIMIZER {
     Eigen::MatrixXd _hess(Hess);
     Eigen::MatrixXd _jact(JacT);
 
-    size_t voxel_size = origin_points.size();
+    const size_t voxel_size = origin_points.size();
 
     for (size_t i = 0; i < voxel_size; i++) {
-      vector_vec3d& origin_pts = *origin_points[i];
-      std::vector<int>& win_num = *window_nums[i];
-      size_t pts_size = origin_pts.size();
+      const vector_vec3d& origin_pts = *origin_points[i];
+      const std::vector<int>& win_num = *window_nums[i];
+      const size_t pts_size = origin_pts.size();
 
       Eigen::Vector3d vec_tran;
       vector_vec3d pt_trans(pts_size);
@@ -184,7 +205,7 @@ class LM_OPTIMIZER {
         covMat += pt_trans[j] * pt_trans[j].transpose();
       }
 
-      double N = pts_size;
+      const int N = pts_size;
       covMat = covMat - centor * centor.transpose() / N;
       covMat = covMat / N;
       centor = centor / N;
@@ -194,13 +215,17 @@ class LM_OPTIMIZER {
 
       Eigen::Matrix3d U = saes.eigenvectors();
       Eigen::Vector3d u[3];
-      for (int j = 0; j < 3; j++) u[j] = U.block<3, 1>(0, j);
+      for (int j = 0; j < 3; j++) {
+        u[j] = U.block<3, 1>(0, j);
+      }
 
       Eigen::Matrix3d ukukT = u[0] * u[0].transpose();
       Eigen::Vector3d vec_Jt;
+
       for (size_t j = 0; j < pts_size; j++) {
         pt_trans[j] = pt_trans[j] - centor;
         vec_Jt = 2.0 / N * ukukT * pt_trans[j];
+        // Equation (10) and (11) of BLAM paper.
         _jact.block<3, 1>(6 * win_num[j], 0) -= point_xis[j] * vec_Jt;
         _jact.block<3, 1>(6 * win_num[j] + 3, 0) += vec_Jt;
       }
@@ -220,10 +245,13 @@ class LM_OPTIMIZER {
 
       Eigen::Matrix3d h33;
       size_t rownum, colnum;
-      for (size_t j = 0; j < pts_size; j++)  // for each point in voxel
-      {
-        for (int f = 0; f < 3; f++)
+      for (size_t j = 0; j < pts_size; j++) {
+        // This loop corresponds to part of block 3 of Equation (7) of BALM
+        // paper.
+        // for each point in voxel
+        for (int f = 0; f < 3; f++) {
           F.block<1, 3>(f, 0) = pt_trans[j].transpose() * F_[f];
+        }
 
         F = U * F;
         colnum = 6 * win_num[j];
@@ -232,10 +260,11 @@ class LM_OPTIMIZER {
               u[0] * (pt_trans[k]).transpose() * F + u[0].dot(pt_trans[k]) * F;
 
           rownum = 6 * win_num[k];
-          if (k == j)
-            Hessian33 += (N - 1) / N * ukukT;
-          else
+          if (k == j) {
+            Hessian33 += static_cast<double>(N - 1) / N * ukukT;
+          } else {
             Hessian33 -= 1.0 / N * ukukT;
+          }
           Hessian33 = 2.0 / N * Hessian33;
 
           _hess.block<3, 3>(rownum + 3, colnum + 3) += Hessian33;
